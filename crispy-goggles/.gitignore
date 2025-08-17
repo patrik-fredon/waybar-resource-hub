@@ -1,0 +1,45 @@
+# .gitignore
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# VSCode
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python egg
+*.egg-info/
+
+dist/
+build/
+.eggs/
+
+# Test output
+htmlcov/
+.coverage
+.tox/
+
+# Misc
+*.swp
+*.bak
+*.tmp
+
+# Ignore local config
+config.local.jsonc
+docs/Implementation-plan.md

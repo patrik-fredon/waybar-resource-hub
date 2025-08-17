@@ -1,0 +1,11 @@
+// Waybar config snippet for custom/hwinfo module
+{
+  "custom/hwinfo": {
+    "exec": "python3 /path/to/your/hw_info_module.py", // Update path
+    "return-type": "json",
+    "interval": 0, // Script handles its own interval
+    "format": "{}",
+    "max-length": 100,
+    "tooltip": true
+  }
+}

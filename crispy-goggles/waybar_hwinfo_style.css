@@ -1,0 +1,22 @@
+/* Hardware Info Module */
+#custom-hwinfo {
+  background-color: #2e3440;
+  color: #d8dee9;
+  border-radius: 8px;
+  padding: 0 10px;
+  margin: 0 5px;
+  transition: background-color 0.3s ease;
+}
+#custom-hwinfo:hover {
+  background-color: #4c566a;
+}
+tooltip {
+  background-color: #4c566a;
+  border: 1px solid #88c0d0;
+  border-radius: 5px;
+  padding: 8px;
+  font-size: 14px;
+}
+tooltip label {
+  color: #eceff4;
+}
