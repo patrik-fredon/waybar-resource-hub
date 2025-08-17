@@ -178,15 +178,25 @@ class Card(QFrame):
         super().__init__()
         self.key = key
         self.setObjectName(f"card_{key}")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(f"{title} Metrics Card")
+        self.setToolTip("")
         self.setStyleSheet(
             f"""
             QFrame[objectName^="card_"] {{
                 background-color: {COLORS['bg_secondary']};
                 border: 1px solid {COLORS['border_primary']};
                 border-radius: {RADIUS['lg']}px;
+                transition: border-color 0.2s cubic-bezier(.4,0,.2,1), box-shadow 0.2s cubic-bezier(.4,0,.2,1), background-color 0.2s cubic-bezier(.4,0,.2,1);
             }}
-            QFrame[objectName^="card_"]:hover {{
+            QFrame[objectName^="card_"]:hover, QFrame[objectName^="card_"]:focus {{
                 border-color: {COLORS['border_hover']};
+                box-shadow: 0 2px 12px 0 rgba(102,163,255,0.10);
+                outline: 2px solid {COLORS['action_primary']};
+                outline-offset: 0px;
+            }}
+            QFrame[objectName^="card_"][pressed="true"] {{
+                background-color: {COLORS['bg_tertiary']};
             }}
             """
         )
@@ -216,13 +226,73 @@ class Card(QFrame):
         lay.addStretch()
         lay.addWidget(self.spark_lbl)
 
-    def mousePressEvent(self, _):
+        # Skeleton loading animation
+        self.skel_anim = QPropertyAnimation(self.value_lbl, b"windowOpacity")
+        self.skel_anim.setDuration(900)
+        self.skel_anim.setStartValue(0.4)
+        self.skel_anim.setEndValue(1.0)
+        self.skel_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self.skel_anim.setLoopCount(-1)
+        self.skel_anim.start()
+
+        # Tooltip timer
+        self._tooltip_timer = QTimer(self)
+        self._tooltip_timer.setSingleShot(True)
+        self._tooltip_timer.setInterval(300)
+        self._tooltip_timer.timeout.connect(self._show_tooltip)
+        self._pending_tooltip = False
+
+    def enterEvent(self, event):
+        self._pending_tooltip = True
+        self._tooltip_timer.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._pending_tooltip = False
+        self._tooltip_timer.stop()
+        self.setToolTip("")
+        super().leaveEvent(event)
+
+    def _show_tooltip(self):
+        if self._pending_tooltip and self.toolTip():
+            QFrame.setToolTip(self, self.toolTip())
+
+    def focusInEvent(self, event):
+        self.setProperty("focus", True)
+        self.update()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        self.setProperty("focus", False)
+        self.update()
+        super().focusOutEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            try:
+                w = self.window()
+                if w and hasattr(w, "card_clicked"):
+                    getattr(w, "card_clicked")(self.key)
+            except Exception:
+                pass
+        else:
+            super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):
+        self.setProperty("pressed", True)
+        self.update()
         try:
             w = self.window()
             if w and hasattr(w, "card_clicked"):
                 getattr(w, "card_clicked")(self.key)
         except Exception:
             pass
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.setProperty("pressed", False)
+        self.update()
+        super().mouseReleaseEvent(event)
 
 
 class HwPopup(QFrame):
