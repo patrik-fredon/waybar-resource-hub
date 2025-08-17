@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QPropertyAnimation,
     QEasingCurve,
     QRect,
+    QEvent,
 )
 from PySide6.QtGui import QGuiApplication, QCursor, QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
@@ -43,8 +44,9 @@ from hardware_utils import (
 class HwPopup(QWidget):
     """Modern hardware monitoring popup with responsive design and professional layout."""
 
-    def __init__(self):
+    def __init__(self, app_instance=None):
         super().__init__()
+        self.app_instance = app_instance
         self.is_loading = True
         self._setup_window()
         self._setup_styling()
@@ -72,6 +74,11 @@ class HwPopup(QWidget):
 
         # Focus handling for click-outside-to-close
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # Install event filter for global mouse events
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self)
 
     def _center_on_screen(self):
         """Center window on the current screen."""
@@ -472,13 +479,10 @@ class HwPopup(QWidget):
         self.opacity_anim.setEndValue(0.0)
 
         # Disconnect any previous connections to avoid multiple calls
-        try:
-            self.opacity_anim.finished.disconnect()
-        except TypeError:
-            pass  # No connections to disconnect
-
-        # Connect to quit and start animation
-        self.opacity_anim.finished.connect(self._quit_application)
+        # Just connect without trying to disconnect to avoid warnings
+        if not hasattr(self, '_opacity_connected'):
+            self.opacity_anim.finished.connect(self._quit_application)
+            self._opacity_connected = True
         self.opacity_anim.start()
 
         # Fallback timer in case animation fails
@@ -486,26 +490,13 @@ class HwPopup(QWidget):
 
     def _quit_application(self):
         """Actually quit the application."""
+        # Stop any running timers first
+        if self.app_instance and hasattr(self.app_instance, 'cleanup'):
+            self.app_instance.cleanup()
+
         app = QCoreApplication.instance()
         if app:
             app.quit()
         else:
             import sys
-
             sys.exit(0)
-
-    def focusOutEvent(self, event):
-        """Handle focus loss for click-outside-to-close."""
-        # Only close if we actually lost focus (not just switching between child widgets)
-        if not self.isActiveWindow() and not any(
-            w.isActiveWindow() for w in self.findChildren(QWidget)
-        ):
-            # Small delay to allow for interaction
-            QTimer.singleShot(100, self.close_application)
-        super().focusOutEvent(event)
-
-    def keyPressEvent(self, event):
-        """Handle keyboard shortcuts."""
-        if event.key() == Qt.Key.Key_Escape:
-            self.close_application()
-        super().keyPressEvent(event)

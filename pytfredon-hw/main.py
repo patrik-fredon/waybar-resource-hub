@@ -50,11 +50,17 @@ class HardwareMonitorApp:
 
     def _create_window(self):
         """Create and configure the main window."""
-        self.window = HwPopup()
+        self.window = HwPopup(app_instance=self)
 
         # Show window with entrance animation
         screen = QGuiApplication.screenAt(QCursor.pos()) or self.app.primaryScreen()
         self.window.show_with_entrance_animation(screen)
+
+    def cleanup(self):
+        """Cleanup resources before application exit."""
+        if hasattr(self, 'update_timer') and self.update_timer:
+            self.update_timer.stop()
+            self.update_timer = None
 
     def _setup_update_timer(self):
         """Setup the periodic update timer."""
