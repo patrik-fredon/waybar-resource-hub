@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QEasingCurve,
     QPoint,
     QPropertyAnimation,
+    QRect,
     QSize,
     QTimer,
     Qt,
@@ -28,6 +29,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QSizePolicy,
     QVBoxLayout,
+    QWidget,
+    QToolTip,
 )
 
 # --- Design System ---
@@ -68,6 +71,216 @@ TYPOGRAPHY = {
     "small": "font-weight: 400; font-size: 12px; line-height: 1.4;",
     "value": "font-weight: 300; font-size: 30px; line-height: 1.2; letter-spacing: -0.02em;",
 }
+
+
+# --- Premium UX Utility Classes ---
+
+
+class ShadowManager:
+    """Qt-native shadow effects manager - replaces CSS box-shadow."""
+
+    @staticmethod
+    def create_shadow(
+        level: str = "01", color: Optional[QColor] = None
+    ) -> QGraphicsDropShadowEffect:
+        """Create a drop shadow effect based on design system levels."""
+        shadow = QGraphicsDropShadowEffect()
+
+        # Shadow configurations based on design system
+        shadow_configs = {
+            "none": {"blur": 0, "offset": (0, 0)},
+            "01": {"blur": 3, "offset": (0, 1)},
+            "02": {"blur": 6, "offset": (0, 4)},
+            "03": {"blur": 15, "offset": (0, 10)},
+            "04": {"blur": 25, "offset": (0, 20)},
+            "05": {"blur": 50, "offset": (0, 25)},
+            "hover": {"blur": 12, "offset": (0, 4)},
+            "focus": {"blur": 0, "offset": (0, 0)},  # Focus uses border, not shadow
+            "active": {"blur": 2, "offset": (0, 1)},
+        }
+
+        config = shadow_configs.get(level, shadow_configs["01"])
+        shadow.setBlurRadius(config["blur"])
+        shadow.setOffset(*config["offset"])
+
+        # Set shadow color
+        if color:
+            shadow.setColor(color)
+        else:
+            # Default shadow color from design system
+            shadow.setColor(QColor(0, 0, 0, 25))  # rgba(0,0,0,0.1)
+
+        return shadow
+
+    @staticmethod
+    def apply_shadow(
+        widget: QWidget, level: str = "01", color: Optional[QColor] = None
+    ):
+        """Apply shadow effect to a widget."""
+        if level == "none":
+            # Remove existing graphics effect
+            current_effect = widget.graphicsEffect()
+            if current_effect:
+                current_effect.setParent(None)
+            widget.setGraphicsEffect(None)  # type: ignore
+        else:
+            shadow = ShadowManager.create_shadow(level, color)
+            widget.setGraphicsEffect(shadow)
+
+    @staticmethod
+    def create_hover_shadow() -> QGraphicsDropShadowEffect:
+        """Create special hover shadow with blue tint."""
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(12)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(102, 163, 255, 38))  # Blue hover shadow
+        return shadow
+
+    @staticmethod
+    def create_focus_shadow() -> QGraphicsDropShadowEffect:
+        """Create focus shadow effect."""
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(4)
+        shadow.setOffset(0, 0)
+        shadow.setColor(QColor(102, 163, 255, 128))  # Blue focus shadow
+        return shadow
+
+
+class AnimationManager:
+    """Qt-native property animation manager - replaces CSS transitions."""
+
+    # Animation durations (in milliseconds)
+    DURATIONS = {
+        "fast": 150,
+        "moderate": 300,
+        "slow": 500,
+        "extra-slow": 700,
+    }
+
+    # Easing curves for different animation types
+    EASING = {
+        "standard": QEasingCurve.Type.OutCubic,
+        "decelerate": QEasingCurve.Type.OutQuart,
+        "accelerate": QEasingCurve.Type.InQuart,
+        "bounce": QEasingCurve.Type.OutBounce,
+        "elastic": QEasingCurve.Type.OutElastic,
+    }
+
+    @staticmethod
+    def create_animation(
+        widget: QWidget,
+        property_name: str,
+        duration: str = "moderate",
+        easing: str = "standard",
+    ) -> QPropertyAnimation:
+        """Create a property animation with design system timing."""
+        animation = QPropertyAnimation(widget, property_name.encode())
+        animation.setDuration(AnimationManager.DURATIONS[duration])
+        animation.setEasingCurve(AnimationManager.EASING[easing])
+        return animation
+
+    @staticmethod
+    def animate_hover_scale(widget: QWidget, scale_factor: float = 1.02):
+        """Animate widget scale on hover."""
+        animation = AnimationManager.create_animation(widget, "geometry", "fast")
+        current_geometry = widget.geometry()
+
+        # Calculate scaled geometry
+        center_x = current_geometry.x() + current_geometry.width() / 2
+        center_y = current_geometry.y() + current_geometry.height() / 2
+        new_width = int(current_geometry.width() * scale_factor)
+        new_height = int(current_geometry.height() * scale_factor)
+        new_x = int(center_x - new_width / 2)
+        new_y = int(center_y - new_height / 2)
+
+        from PySide6.QtCore import QRect
+
+        scaled_geometry = QRect(new_x, new_y, new_width, new_height)
+
+        animation.setStartValue(current_geometry)
+        animation.setEndValue(scaled_geometry)
+        animation.start()
+        return animation
+
+    @staticmethod
+    def animate_opacity(
+        widget: QWidget, target_opacity: float, duration: str = "moderate"
+    ):
+        """Animate widget opacity."""
+        # Check if widget already has an opacity effect
+        effect = widget.graphicsEffect()
+        if not isinstance(effect, QGraphicsOpacityEffect):
+            effect = QGraphicsOpacityEffect()
+            widget.setGraphicsEffect(effect)
+
+        animation = QPropertyAnimation(effect, b"opacity")
+        animation.setDuration(AnimationManager.DURATIONS[duration])
+        animation.setEasingCurve(AnimationManager.EASING["standard"])
+        animation.setEndValue(target_opacity)
+        animation.start()
+        return animation
+
+
+class InteractionManager:
+    """Manages micro-interactions and hover/focus effects."""
+
+    def __init__(self, widget: QWidget):
+        self.widget = widget
+        self.hover_animation = None
+        self.scale_animation = None
+        self.original_shadow = None
+        self.hover_shadow = None
+
+        # Store original geometry for scale animations
+        self.original_geometry = None
+
+    def setup_hover_effects(
+        self, enable_scale: bool = True, enable_shadow: bool = True
+    ):
+        """Setup hover effects for the widget."""
+        self.enable_shadow = enable_shadow
+        self.enable_scale = enable_scale
+
+        # Apply initial shadow
+        if enable_shadow:
+            ShadowManager.apply_shadow(self.widget, "01")
+
+        # Install event filter or override events in widget
+        self.widget.enterEvent = self._on_enter
+        self.widget.leaveEvent = self._on_leave
+
+    def _on_enter(self, event):
+        """Handle mouse enter event."""
+        # Apply hover shadow - create new effect each time
+        if self.enable_shadow:
+            hover_shadow = ShadowManager.create_hover_shadow()
+            self.widget.setGraphicsEffect(hover_shadow)
+
+        # Animate scale
+        if self.enable_scale:
+            if self.original_geometry is None:
+                self.original_geometry = self.widget.geometry()
+            self.scale_animation = AnimationManager.animate_hover_scale(
+                self.widget, 1.02
+            )
+
+    def _on_leave(self, event):
+        """Handle mouse leave event."""
+        # Restore original shadow - create new effect each time
+        if self.enable_shadow:
+            original_shadow = ShadowManager.create_shadow("01")
+            self.widget.setGraphicsEffect(original_shadow)
+
+        # Animate back to original scale
+        if self.enable_scale and self.original_geometry and self.scale_animation:
+            animation = AnimationManager.create_animation(
+                self.widget, "geometry", "fast"
+            )
+            animation.setStartValue(self.widget.geometry())
+            animation.setEndValue(self.original_geometry)
+            animation.start()
+            self.scale_animation = animation
+
 
 # 2. COLOR SYSTEM
 # WCAG AA compliant (4.5:1+ contrast) with cohesive palette
@@ -202,30 +415,36 @@ RADIUS = {
 }
 
 # 5. ELEVATION SYSTEM
-# Consistent shadow system for depth and hierarchy
+# Now handled by ShadowManager class - removing CSS box-shadow for Qt compatibility
+# CSS box-shadow is not supported by Qt stylesheets, use ShadowManager instead
 ELEVATION = {
-    "none": "box-shadow: none;",
-    "01": f"box-shadow: 0 1px 3px 0 {COLORS['shadow']};",
-    "02": f"box-shadow: 0 4px 6px -1px {COLORS['shadow']};",
-    "03": f"box-shadow: 0 10px 15px -3px {COLORS['shadow']};",
-    "04": f"box-shadow: 0 20px 25px -5px {COLORS['shadow']};",
-    "05": f"box-shadow: 0 25px 50px -12px {COLORS['shadow']};",
+    # Elevation levels for reference (use ShadowManager.apply_shadow() instead)
+    "none": "",  # ShadowManager.apply_shadow(widget, "none")
+    "01": "",  # ShadowManager.apply_shadow(widget, "01")
+    "02": "",  # ShadowManager.apply_shadow(widget, "02")
+    "03": "",  # ShadowManager.apply_shadow(widget, "03")
+    "04": "",  # ShadowManager.apply_shadow(widget, "04")
+    "05": "",  # ShadowManager.apply_shadow(widget, "05")
     # Interactive shadows
-    "hover": f"box-shadow: 0 4px 12px 0 rgba(102, 163, 255, 0.15);",
-    "focus": f"box-shadow: 0 0 0 2px {COLORS['focus']};",
-    "active": f"box-shadow: 0 1px 2px 0 {COLORS['shadow']};",
+    "hover": "",  # ShadowManager.create_hover_shadow()
+    "focus": "",  # ShadowManager.create_focus_shadow()
+    "active": "",  # ShadowManager.apply_shadow(widget, "active")
 }
 
 # 6. ANIMATION SYSTEM
-# Consistent timing and easing for smooth interactions
+# Now handled by AnimationManager class - removing CSS transitions for Qt compatibility
+# CSS transitions are not supported by Qt stylesheets, use AnimationManager instead
 ANIMATION = {
-    "duration-fast": "150ms",
-    "duration-moderate": "240ms",
-    "duration-slow": "400ms",
-    "easing-standard": "cubic-bezier(0.4, 0.0, 0.2, 1)",
-    "easing-emphasized": "cubic-bezier(0.0, 0.0, 0.2, 1)",
-    "easing-decelerated": "cubic-bezier(0.0, 0.0, 0.2, 1)",
-    "easing-accelerated": "cubic-bezier(0.4, 0.0, 1, 1)",
+    # Duration references (use AnimationManager.DURATIONS instead)
+    "duration-fast": "150ms",  # AnimationManager.DURATIONS["fast"]
+    "duration-moderate": "300ms",  # AnimationManager.DURATIONS["moderate"]
+    "duration-slow": "500ms",  # AnimationManager.DURATIONS["slow"]
+    "duration-extra-slow": "700ms",  # AnimationManager.DURATIONS["extra-slow"]
+    # Easing references (use AnimationManager.EASING instead)
+    "easing-standard": "cubic-bezier(0.4, 0.0, 0.2, 1)",  # AnimationManager.EASING["standard"]
+    "easing-emphasized": "cubic-bezier(0.0, 0.0, 0.2, 1)",  # AnimationManager.EASING["decelerate"]
+    "easing-decelerated": "cubic-bezier(0.0, 0.0, 0.2, 1)",  # AnimationManager.EASING["decelerate"]
+    "easing-accelerated": "cubic-bezier(0.4, 0.0, 1, 1)",  # AnimationManager.EASING["accelerate"]
 }
 
 # --- Config ---
@@ -337,7 +556,13 @@ class Card(QFrame):
         self.setAccessibleDescription(f"Click to view detailed {title} information")
         self.setToolTip("")
 
-        # Enhanced styling with new design tokens
+        # Initialize interaction manager for premium UX
+        self.interaction_manager = InteractionManager(self)
+
+        # Apply native Qt shadow instead of CSS box-shadow
+        ShadowManager.apply_shadow(self, "02")
+
+        # Enhanced styling with new design tokens (removed incompatible CSS)
         self.setStyleSheet(
             f"""
             QFrame[objectName^="card_"] {{
@@ -345,19 +570,17 @@ class Card(QFrame):
                 border: 1px solid {COLORS['border-subtle']};
                 border-radius: {RADIUS['card']}px;
                 padding: {SPACING['card-padding']};
-                transition: all {ANIMATION['duration-moderate']} {ANIMATION['easing-standard']};
-                {ELEVATION['02']}
+                /* Shadows now handled by ShadowManager */
+                /* Transitions now handled by AnimationManager and InteractionManager */
             }}
 
             QFrame[objectName^="card_"]:hover {{
                 background-color: {COLORS['layer-hover']};
                 border-color: {COLORS['border-interactive']};
-                {ELEVATION['hover']}
-                transform: translateY(-1px);
+                /* Hover animations now handled by InteractionManager */
             }}
 
             QFrame[objectName^="card_"]:focus {{
-                {ELEVATION['focus']}
                 outline: 2px solid {COLORS['focus']};
                 outline-offset: 2px;
                 border-color: {COLORS['border-interactive']};
@@ -365,29 +588,19 @@ class Card(QFrame):
 
             QFrame[objectName^="card_"][pressed="true"] {{
                 background-color: {COLORS['layer-active']};
-                {ELEVATION['active']}
-                transform: translateY(0px);
             }}
 
             QFrame[objectName^="card_"][selected="true"] {{
                 background-color: {COLORS['layer-selected']};
                 border-color: {COLORS['interactive-01']};
-                {ELEVATION['03']}
             }}
 
-            /* Loading state animation */
+            /* Loading state styling */
             QFrame[objectName^="card_"][loading="true"] {{
-                background: linear-gradient(90deg,
-                    {COLORS['layer-01']} 25%,
-                    {COLORS['layer-hover']} 50%,
-                    {COLORS['layer-01']} 75%);
-                background-size: 200% 100%;
-                animation: shimmer 2s infinite;
-            }}
-
-            @keyframes shimmer {{
-                0% {{ background-position: -200% 0; }}
-                100% {{ background-position: 200% 0; }}
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {COLORS['layer-01']},
+                    stop:0.5 {COLORS['layer-hover']},
+                    stop:1 {COLORS['layer-01']});
             }}
             """
         )
@@ -395,6 +608,11 @@ class Card(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setMinimumHeight(120)  # Consistent card height
+
+        # Setup premium hover effects
+        self.interaction_manager.setup_hover_effects(
+            enable_scale=True, enable_shadow=True
+        )
 
         # Enhanced layout with better spacing
         layout = QVBoxLayout(self)
@@ -447,16 +665,23 @@ class Card(QFrame):
         layout.addStretch()
         layout.addWidget(self.spark_lbl)
 
-        # Enhanced loading animation
+        # Enhanced loading animation using QPropertyAnimation directly for opacity effect
         self.loading_effect = QGraphicsOpacityEffect(self.value_lbl)
         self.value_lbl.setGraphicsEffect(self.loading_effect)
 
+        # Create opacity animation for loading effect
         self.loading_anim = QPropertyAnimation(self.loading_effect, b"opacity")
-        self.loading_anim.setDuration(int(ANIMATION["duration-slow"].replace("ms", "")))
+        self.loading_anim.setDuration(AnimationManager.DURATIONS["slow"])
+        self.loading_anim.setEasingCurve(AnimationManager.EASING["standard"])
         self.loading_anim.setStartValue(0.3)
         self.loading_anim.setEndValue(1.0)
-        self.loading_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
         self.loading_anim.setLoopCount(-1)
+
+        # Premium loading shimmer effect
+        self.shimmer_timer = QTimer(self)
+        self.shimmer_timer.setInterval(100)  # Update every 100ms
+        self.shimmer_step = 0
+        self.shimmer_timer.timeout.connect(self._update_shimmer)
 
         # Tooltip timer for delayed tooltip display
         self._tooltip_timer = QTimer(self)
@@ -473,6 +698,14 @@ class Card(QFrame):
         # Start loading animation
         self.set_loading_state(True)
 
+    def _update_shimmer(self):
+        """Update shimmer effect for loading state."""
+        if self._is_loading:
+            self.shimmer_step = (self.shimmer_step + 1) % 20
+            # Create shimmer effect by cycling through opacity values
+            alpha = 0.3 + 0.4 * (0.5 + 0.5 * (self.shimmer_step / 10))
+            self.loading_effect.setOpacity(alpha)
+
     def set_loading_state(self, loading: bool):
         """Set the loading state of the card."""
         self._is_loading = loading
@@ -481,19 +714,34 @@ class Card(QFrame):
         if loading:
             self.value_lbl.setText("Loading...")
             self.loading_anim.start()
+            self.shimmer_timer.start()
             self.status_indicator.hide()
+            # Apply special loading shadow
+            ShadowManager.apply_shadow(self, "01")
         else:
             self.loading_anim.stop()
+            self.shimmer_timer.stop()
             self.loading_effect.setOpacity(1.0)
             self.status_indicator.show()
+            # Restore normal shadow
+            ShadowManager.apply_shadow(self, "02")
 
         self.style().unpolish(self)
         self.style().polish(self)
 
     def set_selected_state(self, selected: bool):
-        """Set the selected state of the card."""
+        """Set the selected state of the card with enhanced visual feedback."""
         self._is_selected = selected
         self.setProperty("selected", selected)
+
+        # Apply appropriate shadow based on selection state
+        if selected:
+            ShadowManager.apply_shadow(self, "03")
+            # Add subtle scale animation for selection
+            AnimationManager.animate_hover_scale(self, 1.01)
+        else:
+            ShadowManager.apply_shadow(self, "02")
+
         self.style().unpolish(self)
         self.style().polish(self)
 
@@ -606,7 +854,7 @@ class Card(QFrame):
 
 
 class HwPopup(QFrame):
-    """Enhanced main application window with perfected design system."""
+    """Enhanced main application window with premium UX design system."""
 
     def __init__(self):
         super().__init__()
@@ -619,7 +867,14 @@ class HwPopup(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        # Enhanced styling with new design tokens
+        # Initialize interaction managers for premium UX
+        self.animation_manager = AnimationManager()
+        self.cards_interaction_managers = {}
+
+        # Apply premium window shadow
+        ShadowManager.apply_shadow(self, "05")
+
+        # Enhanced styling with Qt-native shadows and animations
         self.setStyleSheet(
             f"""
             #hwpopup {{
@@ -627,7 +882,7 @@ class HwPopup(QFrame):
                 color: {COLORS['text-primary']};
                 border-radius: {RADIUS['modal']}px;
                 border: 1px solid {COLORS['border-subtle']};
-                {ELEVATION['04']}
+                /* Shadows now handled by ShadowManager */
             }}
 
             QLabel {{
@@ -642,24 +897,21 @@ class HwPopup(QFrame):
                 border-radius: {RADIUS['button']}px;
                 padding: {SPACING['button-padding-sm']};
                 {TYPOGRAPHY['body-compact-01']}
-                transition: all {ANIMATION['duration-moderate']} {ANIMATION['easing-standard']};
+                /* Transitions now handled by AnimationManager */
             }}
 
             QPushButton:hover {{
                 background-color: {COLORS['button-secondary-hover']};
                 border-color: {COLORS['border-strong']};
-                {ELEVATION['hover']}
             }}
 
             QPushButton:focus {{
-                {ELEVATION['focus']}
                 outline: 2px solid {COLORS['focus']};
                 outline-offset: 2px;
             }}
 
             QPushButton:pressed {{
                 background-color: {COLORS['layer-active']};
-                {ELEVATION['active']}
             }}
 
             /* Close button specific styling */
@@ -684,6 +936,12 @@ class HwPopup(QFrame):
                 color: {COLORS['text-on-color']};
                 outline: 2px solid {COLORS['focus']};
             }}
+
+            /* Loading state overlay */
+            QFrame#loading-overlay {{
+                background-color: rgba(0, 0, 0, 50);
+                border-radius: {RADIUS['modal']}px;
+            }}
             """
         )
 
@@ -691,12 +949,15 @@ class HwPopup(QFrame):
         self.setMinimumSize(QSize(600, 420))
         self.setMaximumSize(QSize(800, 600))
 
-        # Enhanced drop shadow
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(SPACING["3xl"])
-        shadow.setOffset(0, SPACING["lg"])
-        shadow.setColor(QColor(0, 0, 0, 80))  # Softer shadow
-        self.setGraphicsEffect(shadow)
+        # Initialize loading state management
+        self.is_loading = True
+        self.loading_timer = QTimer(self)
+        self.loading_timer.setSingleShot(True)
+        self.loading_timer.timeout.connect(self._finish_initial_load)
+
+        # Premium entrance animation
+        self.entrance_animation = None
+        self._setup_entrance_animation()
 
         # Main layout with enhanced spacing
         self.root_layout = QVBoxLayout(self)
@@ -861,6 +1122,88 @@ class HwPopup(QFrame):
         footer_layout.addWidget(interval_text)
         self.root_layout.addLayout(footer_layout)
 
+    def _setup_entrance_animation(self):
+        """Setup premium entrance animation."""
+        # Scale animation for entrance
+        self.entrance_scale_anim = QPropertyAnimation(self, b"geometry")
+        self.entrance_scale_anim.setDuration(AnimationManager.DURATIONS["moderate"])
+        self.entrance_scale_anim.setEasingCurve(AnimationManager.EASING["bounce"])
+
+        # Opacity animation for entrance
+        self.entrance_opacity_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.entrance_opacity_anim.setDuration(AnimationManager.DURATIONS["fast"])
+        self.entrance_opacity_anim.setEasingCurve(AnimationManager.EASING["standard"])
+
+    def _finish_initial_load(self):
+        """Finish initial loading state with smooth transition."""
+        self.is_loading = False
+        # Animate cards into view with staggered timing
+        for i, card in enumerate(
+            [self.card_cpu, self.card_ram, self.card_gpu, self.card_disk]
+        ):
+            # Stagger the animations by 100ms each
+            QTimer.singleShot(i * 100, lambda c=card: c.set_loading_state(False))
+
+    def _create_loading_overlay(self):
+        """Create premium loading overlay."""
+        self.loading_overlay = QFrame(self)
+        self.loading_overlay.setObjectName("loading-overlay")
+        self.loading_overlay.setGeometry(self.rect())
+
+        # Loading spinner
+        self.loading_spinner = QLabel("Loading...", self.loading_overlay)
+        self.loading_spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_spinner.setStyleSheet(
+            f"""
+            color: {COLORS['text-primary']};
+            {TYPOGRAPHY['heading-02']}
+        """
+        )
+
+        # Position spinner in center
+        overlay_layout = QVBoxLayout(self.loading_overlay)
+        overlay_layout.addStretch()
+        overlay_layout.addWidget(self.loading_spinner)
+        overlay_layout.addStretch()
+
+    def show_with_entrance_animation(self, screen):
+        """Enhanced show with premium entrance animation."""
+        # Start with small scale and fade (skip opacity on Wayland)
+        try:
+            self.setWindowOpacity(0.0)
+            use_opacity = True
+        except:
+            use_opacity = False
+
+        original_geometry = self.geometry()
+
+        # Scale down initially
+        small_width = int(original_geometry.width() * 0.8)
+        small_height = int(original_geometry.height() * 0.8)
+        small_x = original_geometry.x() + (original_geometry.width() - small_width) // 2
+        small_y = (
+            original_geometry.y() + (original_geometry.height() - small_height) // 2
+        )
+        small_geometry = QRect(small_x, small_y, small_width, small_height)
+
+        self.setGeometry(small_geometry)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+        # Animate to full size and opacity
+        self.entrance_scale_anim.setStartValue(small_geometry)
+        self.entrance_scale_anim.setEndValue(original_geometry)
+        self.entrance_opacity_anim.setStartValue(0.0)
+        self.entrance_opacity_anim.setEndValue(1.0)
+
+        # Start both animations
+        self.entrance_scale_anim.start()
+        self.entrance_opacity_anim.start()
+
+        # Start initial loading process
+        self.loading_timer.start(1000)  # Show loading for 1 second
+
     def _setup_animations(self):
         """Setup enhanced animations with new timing system."""
         # Window fade animation
@@ -943,15 +1286,21 @@ class HwPopup(QFrame):
         y = available_geometry.y() + (available_geometry.height() - self.height()) // 2
         self.move(x, y)
 
-        # Fade in animation
-        self.setWindowOpacity(0.0)
+        # Fade in animation (skip opacity on Wayland)
+        try:
+            self.setWindowOpacity(0.0)
+            use_opacity = True
+        except:
+            use_opacity = False
+
         self.show()
         self.raise_()
         self.activateWindow()
 
-        self.fade_anim.setStartValue(0.0)
-        self.fade_anim.setEndValue(1.0)
-        self.fade_anim.start()
+        if use_opacity:
+            self.fade_anim.setStartValue(0.0)
+            self.fade_anim.setEndValue(1.0)
+            self.fade_anim.start()
 
     def draw_sparkline(self, values: list[float], width: int = 140, height: int = 40):
         """Enhanced sparkline with better styling and HiDPI support."""
@@ -1112,7 +1461,7 @@ class HwApp:
             pass
         self.popup = HwPopup()
         scr = QGuiApplication.screenAt(QCursor.pos()) or self.app.primaryScreen()
-        self.popup.show_with_fade(scr)
+        self.popup.show_with_entrance_animation(scr)
         self.timer = QTimer()
         self.timer.setInterval(UPDATE_INTERVAL_MS)
         self.timer.timeout.connect(self.update_stats)
@@ -1227,7 +1576,7 @@ class HwApp:
 
         except Exception as e:
             print(f"Error updating stats: {e}")  # Debug logging
-            # Set error state for all cards
+            # Set error state for all cards with enhanced visual feedback
             for card in [
                 self.popup.card_cpu,
                 self.popup.card_ram,
@@ -1235,6 +1584,15 @@ class HwApp:
                 self.popup.card_disk,
             ]:
                 card.set_status("error")
+                card.value_lbl.setText("Error")
+                card.set_additional_info(f"Failed to load data: {str(e)[:50]}...")
+
+                # Add error animation
+                error_animation = AnimationManager.animate_opacity(card, 0.7, "fast")
+                # After error animation, restore opacity
+                QTimer.singleShot(
+                    300, lambda c=card: AnimationManager.animate_opacity(c, 1.0, "fast")
+                )
 
     def run(self):
         try:
